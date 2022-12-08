@@ -13,7 +13,7 @@ where
     C: CustomMsg,
 {
     type Err: ToString;
-    fn execute_deposit(&self, deps: DepsMut, info: MessageInfo) -> Result<Response<C>, Self::Err>;
+    fn execute_deposit(&self, deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response<C>, Self::Err>;
     fn execute_withdraw(&self, deps: DepsMut, info: MessageInfo, amount:u128, denom:String) -> Result<Response<C>, Self::Err>;
     fn execute_cw20_deposit(&self, deps: DepsMut, env:Env, info: MessageInfo, owner:String, amount:Uint128) -> Result<Response<C>, Self::Err>;
     fn execute_cw20_withdraw(&self, deps: DepsMut, env: Env, info: MessageInfo, contract:String, amount: Uint128) -> Result<Response<C>, Self::Err>;

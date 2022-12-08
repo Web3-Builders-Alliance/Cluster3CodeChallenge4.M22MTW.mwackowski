@@ -6,7 +6,7 @@ use cosmwasm_std::{
 };
 
 use cw2::set_contract_version;
-use cw20::{Cw20ReceiveMsg, Expiration};
+use cw20::Cw20ReceiveMsg;
 use cw20_base;
 use cw721::Cw721ReceiveMsg;
 use cw_utils;
@@ -15,7 +15,7 @@ use cw_utils;
 use crate::error::ContractError;
 use crate::msg::{
     Cw20DepositResponse, Cw20HookMsg, Cw721DepositResponse, Cw721HookMsg, DepositResponse,
-    ExecuteMsg, InstantiateMsg, QueryMsg, MigrateMsg,
+    ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg,
 };
 use crate::state::{Cw20Deposits, Cw721Deposits, Deposit, Deposits};
 use crate::traits::{DepositExecute, DepositQuery};
@@ -43,10 +43,16 @@ where
         &self,
         deps: DepsMut,
         info: MessageInfo,
+        env: Env
     ) -> Result<Response<C>, ContractError> {
+        // cw_utils::pa
         let sender = info.sender.clone().into_string();
 
-        let d_coins = info.funds[0].clone();
+        // let d_coins = info.funds[0].clone();
+        let d_coins = cw_utils::one_coin(&info).unwrap();
+
+        //add expiration
+        let expiration = cw_utils::Duration::Height(20).after(&env.block);
 
         //check to see if deposit exists
         match self
@@ -57,6 +63,7 @@ where
                 //add coins to their account
                 deposit.coins.amount = deposit.coins.amount.checked_add(d_coins.amount).unwrap();
                 deposit.count = deposit.count.checked_add(1).unwrap();
+                deposit.stake_time = expiration;
                 self.deposits
                     .save(deps.storage, (&sender, d_coins.denom.as_str()), &deposit)
                     .unwrap();
@@ -67,6 +74,7 @@ where
                     count: 1,
                     owner: info.sender,
                     coins: d_coins.clone(),
+                    stake_time: expiration,
                 };
                 self.deposits
                     .save(deps.storage, (&sender, d_coins.denom.as_str()), &deposit)
@@ -86,6 +94,8 @@ where
         amount: u128,
         denom: String,
     ) -> Result<Response<C>, ContractError> {
+        cw_utils::nonpayable(&info).unwrap();
+
         let sender = info.sender.clone().into_string();
 
         let mut deposit = self
@@ -123,7 +133,7 @@ where
         amount: Uint128,
     ) -> Result<Response<C>, ContractError> {
         let cw20_contract_address = info.sender.clone().into_string();
-        let expiration = Expiration::AtHeight(env.block.height + 20);
+        let expiration = cw_utils::Duration::Height(20).after(&env.block);
         match self
             .cw20_deposits
             .load(deps.storage, (&owner, &cw20_contract_address))
@@ -221,11 +231,13 @@ where
         token_id: String,
     ) -> Result<Response<C>, ContractError> {
         let cw721_contract_address = info.sender.clone().into_string();
+        let expiration = cw_utils::Duration::Height(20).after(&env.block);
 
         let data = Cw721Deposits {
             owner: owner.clone(),
             contract: info.sender.into_string(),
             token_id: token_id.clone(),
+            stake_time: expiration,
         };
         self.cw721_deposits
             .save(
@@ -286,7 +298,7 @@ pub fn execute(
 ) -> Result<Response, ContractError> {
     let contract = Deposit::<Empty>::default();
     match msg {
-        ExecuteMsg::Deposit {} => contract.execute_deposit(deps, info),
+        ExecuteMsg::Deposit {} => contract.execute_deposit(deps, info, env),
         ExecuteMsg::Withdraw { amount, denom } => {
             contract.execute_withdraw(deps, info, amount, denom)
         }
@@ -378,8 +390,9 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
-pub fn migrate(_deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
-    unimplemented!()
+pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
+    cw_utils::ensure_from_older_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
+    Ok(Response::default())
 }
 
 pub fn receive_cw20(
@@ -389,6 +402,7 @@ pub fn receive_cw20(
     contract: &Deposit<Empty>,
     cw20_msg: Cw20ReceiveMsg,
 ) -> Result<Response, ContractError> {
+    cw_utils::nonpayable(&info).unwrap();
     match from_binary(&cw20_msg.msg) {
         Ok(Cw20HookMsg::Deposit {}) => {
             contract.execute_cw20_deposit(deps, env, info, cw20_msg.sender, cw20_msg.amount)
